@@ -113,6 +113,9 @@ import { useAuth } from "@/lib/auth-context"
 
 type User = { id: number; name: string; role: string };
 
+// Define state for toggling between client number and email
+type DisplayMode = 'number' | 'email';
+
 export const schema = z.object({
   id: z.number(),
   header: z.string(),
@@ -122,7 +125,10 @@ export const schema = z.object({
   sale_id: z.number().optional(),
   engineer_id: z.number().optional(),
   client_number: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
 })
+
+export type Project = z.infer<typeof schema>;
 
 // Create a separate component for the drag handle
 function DragHandle({ id }: { id: number }) {
@@ -148,19 +154,23 @@ function DragHandle({ id }: { id: number }) {
 function DataTableColumnHeader({
   column,
   title,
+  onClick,
+  className,
 }: {
   column: Column<z.infer<typeof schema>, unknown>
   title: string
+  onClick?: () => void
+  className?: string
 }) {
   if (!column.getCanSort()) {
-    return <div className="text-sm font-medium">{title}</div>
+    return <div className={cn("text-sm font-medium", className)}>{title}</div>
   }
 
   return (
     <Button
       variant="ghost"
-      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      className="flex items-center gap-1 p-0 hover:bg-transparent text-sm font-medium"
+      onClick={onClick}
+      className={cn("flex items-center gap-1 p-0 hover:bg-transparent text-sm font-medium", className)}
     >
       {title}
       {column.getIsSorted() === "asc" ? (
@@ -180,6 +190,8 @@ const createColumns = (
   setDeleteDialogOpen: React.Dispatch<React.SetStateAction<boolean>>,
   setProjectToDelete: React.Dispatch<React.SetStateAction<number | null>>,
   isAdmin: boolean,
+  displayMode: DisplayMode,
+  setDisplayMode: React.Dispatch<React.SetStateAction<DisplayMode>>
 ): ColumnDef<z.infer<typeof schema>>[] => [
   {
     id: "drag",
@@ -228,9 +240,19 @@ const createColumns = (
   {
     accessorKey: "client_number",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Client Number" />
+      <DataTableColumnHeader 
+        column={column} 
+        title={displayMode === 'number' ? "Client Number" : "Client Email"} 
+        onClick={() => setDisplayMode(prev => prev === 'number' ? 'email' : 'number')}
+        className="cursor-pointer"
+      />
     ),
-    cell: ({ row }) => <div>{row.original.client_number || "N/A"}</div>,
+    cell: ({ row }) => {
+      const value = displayMode === 'number' 
+        ? row.original.client_number 
+        : row.original.email;
+      return <div>{value || "N/A"}</div>
+    },
   },
   {
     accessorKey: "status",
@@ -369,6 +391,7 @@ export function DataTable({
     pageIndex: 0,
     pageSize: 10,
   })
+  const [displayMode, setDisplayMode] = React.useState<DisplayMode>('number');
   const sortableId = React.useId()
   const sensors = useSensors(
     useSensor(MouseSensor, {}),
@@ -384,6 +407,7 @@ export function DataTable({
   const [selectedSale, setSelectedSale] = React.useState<number | null>(null)
   const [selectedEngineer, setSelectedEngineer] = React.useState<number | null>(null)
   const [clientNumber, setClientNumber] = React.useState<string | null>(null)
+  const [email, setEmail] = React.useState<string | null>(null)
   const [salesUsers, setSalesUsers] = React.useState<User[]>([])
   const [engineerUsers, setEngineerUsers] = React.useState<User[]>([])
   
@@ -437,8 +461,8 @@ export function DataTable({
 
   // Create the columns with access to data and setData
   const columns = React.useMemo<ColumnDef<z.infer<typeof schema>>[]>(() => {
-    return createColumns(data, setData, setDeleteDialogOpen, setProjectToDelete, isAdmin);
-  }, [data, isAdmin, setDeleteDialogOpen, setProjectToDelete]);
+    return createColumns(data, setData, setDeleteDialogOpen, setProjectToDelete, isAdmin, displayMode, setDisplayMode);
+  }, [data, isAdmin, setDeleteDialogOpen, setProjectToDelete, displayMode]);
 
   const table = useReactTable({
     data,
@@ -496,7 +520,8 @@ export function DataTable({
             status: selectedStatus,
             sale_id: saleId,
             engineer_id: engineerId,
-            client_number: clientNumber
+            client_number: clientNumber,
+            email: email
           }
         ])
         .select();
@@ -540,7 +565,8 @@ export function DataTable({
         engineer: engineerName,
         sale_id: saleId || undefined,
         engineer_id: engineerId || undefined,
-        client_number: clientNumber
+        client_number: clientNumber,
+        email: email
       }]);
       
       // Close dialog and reset form
@@ -549,6 +575,7 @@ export function DataTable({
       setSelectedSale(null);
       setSelectedEngineer(null);
       setClientNumber(null);
+      setEmail(null);
       setAddClientDialogOpen(false);
       
       toast.success("Client added successfully");
@@ -944,7 +971,7 @@ export function DataTable({
 
             {/* Form Content */}
             <div className="p-6">
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* Client Name */}
                 <div>
                   <Label htmlFor="name" className="text-base font-medium">
@@ -959,21 +986,36 @@ export function DataTable({
                   />
                 </div>
                 
-                {/* Client Number */}
-                <div>
-                  <Label htmlFor="client-number" className="text-base font-medium">
-                    Client Number
-                  </Label>
-                  <Input 
-                    id="client-number" 
-                    className="mt-2"
-                    placeholder="Enter client number (optional)"
-                    value={clientNumber || ''}
-                    onChange={(e) => setClientNumber(e.target.value || null)}
-                  />
+                {/* Client Number and Email - Side by side on md+ */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="client-number" className="text-base font-medium">
+                      Client Number
+                    </Label>
+                    <Input 
+                      id="client-number" 
+                      className="mt-2"
+                      placeholder="Enter client number (optional)"
+                      value={clientNumber || ''}
+                      onChange={(e) => setClientNumber(e.target.value || null)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="email" className="text-base font-medium">
+                      Client Email
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      className="mt-2"
+                      placeholder="Enter client email (optional)"
+                      value={email || ''}
+                      onChange={(e) => setEmail(e.target.value || null)}
+                    />
+                  </div>
                 </div>
                 
-                {/* Status */}
+                {/* Status - Full width */}
                 <div>
                   <Label htmlFor="status" className="text-base font-medium">
                     Status
@@ -994,7 +1036,8 @@ export function DataTable({
                   </Select>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Sales Rep and Engineer - Side by side on md+ */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Sales Representative - Only for admin */}
                   {isAdmin && (
                     <div>
@@ -1101,6 +1144,7 @@ function TableCellViewer({
   const [selectedSaleId, setSelectedSaleId] = React.useState<number | undefined>(item.sale_id)
   const [selectedEngineerId, setSelectedEngineerId] = React.useState<number | undefined>(item.engineer_id)
   const [clientNumber, setClientNumber] = React.useState<string | null>(item.client_number ?? null)
+  const [email, setEmail] = React.useState<string | null>(item.email ?? null)
   const [salesUsers, setSalesUsers] = React.useState<User[]>([])
   const [engineerUsers, setEngineerUsers] = React.useState<User[]>([])
   const [drawerOpen, setDrawerOpen] = React.useState(false)
@@ -1112,6 +1156,7 @@ function TableCellViewer({
     selectedSaleId: item.sale_id,
     selectedEngineerId: item.engineer_id,
     clientNumber: item.client_number,
+    email: item.email,
   })
   
   // Function to detect if form has changes
@@ -1121,9 +1166,10 @@ function TableCellViewer({
       status !== originalValues.status ||
       selectedSaleId !== originalValues.selectedSaleId ||
       selectedEngineerId !== originalValues.selectedEngineerId ||
-      clientNumber !== originalValues.clientNumber
+      clientNumber !== originalValues.clientNumber ||
+      email !== originalValues.email
     )
-  }, [projectName, status, selectedSaleId, selectedEngineerId, clientNumber, originalValues])
+  }, [projectName, status, selectedSaleId, selectedEngineerId, clientNumber, email, originalValues])
 
   // Load sales and engineer users for the dropdown
   React.useEffect(() => {
@@ -1161,6 +1207,7 @@ function TableCellViewer({
       setSelectedSaleId(item.sale_id);
       setSelectedEngineerId(item.engineer_id);
       setClientNumber(item.client_number ?? null);
+      setEmail(item.email ?? null);
       
       // Update original values
       setOriginalValues({
@@ -1169,6 +1216,7 @@ function TableCellViewer({
         selectedSaleId: item.sale_id,
         selectedEngineerId: item.engineer_id,
         clientNumber: item.client_number,
+        email: item.email,
       });
     }
   }, [drawerOpen, item]);
@@ -1182,6 +1230,7 @@ function TableCellViewer({
       setSelectedSaleId(originalValues.selectedSaleId);
       setSelectedEngineerId(originalValues.selectedEngineerId);
       setClientNumber(originalValues.clientNumber ?? null);
+      setEmail(originalValues.email ?? null);
     }
   }, [drawerOpen, originalValues]);
 
@@ -1200,7 +1249,8 @@ function TableCellViewer({
           status,
           sale_id: selectedSaleId === undefined ? null : selectedSaleId,
           engineer_id: selectedEngineerId === undefined ? null : selectedEngineerId,
-          client_number: clientNumber
+          client_number: clientNumber,
+          email: email
         })
         .eq('id', projectId)
 
@@ -1213,6 +1263,7 @@ function TableCellViewer({
         selectedSaleId,
         selectedEngineerId,
         clientNumber,
+        email,
       })
 
       toast.success('Project updated successfully')
@@ -1313,6 +1364,18 @@ function TableCellViewer({
                 onChange={(e) => setClientNumber(e.target.value || null)}
                 disabled={!isAdmin}
                 placeholder="Enter client number (optional)"
+              />
+            </div>
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="email">Client Email</Label>
+              <Input
+                id="email"
+                type="email"
+                className="mt-2"
+                placeholder="Enter client email (optional)"
+                value={email || ''}
+                onChange={(e) => setEmail(e.target.value || null)}
+                disabled={!isAdmin}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">

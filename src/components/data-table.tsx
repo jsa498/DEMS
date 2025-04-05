@@ -121,6 +121,7 @@ export const schema = z.object({
   engineer: z.string().optional(),
   sale_id: z.number().optional(),
   engineer_id: z.number().optional(),
+  client_number: z.string().optional().nullable(),
 })
 
 // Create a separate component for the drag handle
@@ -375,6 +376,7 @@ export function DataTable({
   const [selectedStatus, setSelectedStatus] = React.useState("Lead")
   const [selectedSale, setSelectedSale] = React.useState<number | null>(null)
   const [selectedEngineer, setSelectedEngineer] = React.useState<number | null>(null)
+  const [clientNumber, setClientNumber] = React.useState<string | null>(null)
   const [salesUsers, setSalesUsers] = React.useState<User[]>([])
   const [engineerUsers, setEngineerUsers] = React.useState<User[]>([])
   
@@ -486,7 +488,8 @@ export function DataTable({
             name: projectName, 
             status: selectedStatus,
             sale_id: saleId,
-            engineer_id: engineerId
+            engineer_id: engineerId,
+            client_number: clientNumber
           }
         ])
         .select();
@@ -529,7 +532,8 @@ export function DataTable({
         sale: saleName,
         engineer: engineerName,
         sale_id: saleId || undefined,
-        engineer_id: engineerId || undefined
+        engineer_id: engineerId || undefined,
+        client_number: clientNumber
       }]);
       
       // Close dialog and reset form
@@ -537,6 +541,7 @@ export function DataTable({
       setSelectedStatus('');
       setSelectedSale(null);
       setSelectedEngineer(null);
+      setClientNumber(null);
       setAddClientDialogOpen(false);
       
       toast.success("Client added successfully");
@@ -947,6 +952,20 @@ export function DataTable({
                   />
                 </div>
                 
+                {/* Client Number */}
+                <div>
+                  <Label htmlFor="client-number" className="text-base font-medium">
+                    Client Number
+                  </Label>
+                  <Input 
+                    id="client-number" 
+                    className="mt-2"
+                    placeholder="Enter client number (optional)"
+                    value={clientNumber || ''}
+                    onChange={(e) => setClientNumber(e.target.value || null)}
+                  />
+                </div>
+                
                 {/* Status */}
                 <div>
                   <Label htmlFor="status" className="text-base font-medium">
@@ -1074,6 +1093,7 @@ function TableCellViewer({
   const [status, setStatus] = React.useState(item.status)
   const [selectedSaleId, setSelectedSaleId] = React.useState<number | undefined>(item.sale_id)
   const [selectedEngineerId, setSelectedEngineerId] = React.useState<number | undefined>(item.engineer_id)
+  const [clientNumber, setClientNumber] = React.useState<string | null>(item.client_number ?? null)
   const [salesUsers, setSalesUsers] = React.useState<User[]>([])
   const [engineerUsers, setEngineerUsers] = React.useState<User[]>([])
   const [drawerOpen, setDrawerOpen] = React.useState(false)
@@ -1084,6 +1104,7 @@ function TableCellViewer({
     status: item.status,
     selectedSaleId: item.sale_id,
     selectedEngineerId: item.engineer_id,
+    clientNumber: item.client_number,
   })
   
   // Function to detect if form has changes
@@ -1092,9 +1113,10 @@ function TableCellViewer({
       projectName !== originalValues.projectName ||
       status !== originalValues.status ||
       selectedSaleId !== originalValues.selectedSaleId ||
-      selectedEngineerId !== originalValues.selectedEngineerId
+      selectedEngineerId !== originalValues.selectedEngineerId ||
+      clientNumber !== originalValues.clientNumber
     )
-  }, [projectName, status, selectedSaleId, selectedEngineerId, originalValues])
+  }, [projectName, status, selectedSaleId, selectedEngineerId, clientNumber, originalValues])
 
   // Load sales and engineer users for the dropdown
   React.useEffect(() => {
@@ -1131,6 +1153,7 @@ function TableCellViewer({
       setStatus(item.status);
       setSelectedSaleId(item.sale_id);
       setSelectedEngineerId(item.engineer_id);
+      setClientNumber(item.client_number ?? null);
       
       // Update original values
       setOriginalValues({
@@ -1138,6 +1161,7 @@ function TableCellViewer({
         status: item.status,
         selectedSaleId: item.sale_id,
         selectedEngineerId: item.engineer_id,
+        clientNumber: item.client_number,
       });
     }
   }, [drawerOpen, item]);
@@ -1150,6 +1174,7 @@ function TableCellViewer({
       setStatus(originalValues.status);
       setSelectedSaleId(originalValues.selectedSaleId);
       setSelectedEngineerId(originalValues.selectedEngineerId);
+      setClientNumber(originalValues.clientNumber ?? null);
     }
   }, [drawerOpen, originalValues]);
 
@@ -1167,7 +1192,8 @@ function TableCellViewer({
           name: projectName,
           status,
           sale_id: selectedSaleId === undefined ? null : selectedSaleId,
-          engineer_id: selectedEngineerId === undefined ? null : selectedEngineerId
+          engineer_id: selectedEngineerId === undefined ? null : selectedEngineerId,
+          client_number: clientNumber
         })
         .eq('id', projectId)
 
@@ -1178,7 +1204,8 @@ function TableCellViewer({
         projectName,
         status,
         selectedSaleId,
-        selectedEngineerId
+        selectedEngineerId,
+        clientNumber,
       })
 
       toast.success('Project updated successfully')

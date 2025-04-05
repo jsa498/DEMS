@@ -2,17 +2,14 @@
 
 import * as React from "react"
 import {
-  IconCamera,
   IconChartBar,
   IconDashboard,
   IconDatabase,
-  IconFileAi,
   IconFileDescription,
   IconFileWord,
   IconFolder,
   IconHelp,
   IconInnerShadowTop,
-  IconListDetails,
   IconReport,
   IconSearch,
   IconSettings,
@@ -20,6 +17,8 @@ import {
   IconCalendarEvent,
   IconListCheck,
 } from "@tabler/icons-react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 
 import { NavDocuments } from "@/components/nav-documents"
 import { NavMain } from "@/components/nav-main"
@@ -34,40 +33,61 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/lib/auth-context"
 
+const adminNavItems = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: IconDashboard,
+  },
+  {
+    title: "Users",
+    url: "/users",
+    icon: IconUsers,
+  },
+  {
+    title: "Analytics",
+    url: "/analytics",
+    icon: IconChartBar,
+  },
+  {
+    title: "Tasks",
+    url: "/tasks",
+    icon: IconListCheck,
+  },
+  {
+    title: "Calendar",
+    url: "/calendar",
+    icon: IconCalendarEvent,
+  },
+];
+
+const employeeNavItems = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: IconDashboard,
+  },
+  {
+    title: "Tasks",
+    url: "/tasks",
+    icon: IconListCheck,
+  },
+  {
+    title: "Calendar",
+    url: "/calendar",
+    icon: IconCalendarEvent,
+  },
+];
+
+// Other sidebar data
 const data = {
   user: {
     name: "Admin User",
     email: "admin@example.com",
     avatar: "/avatars/admin.jpg",
   },
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "#",
-      icon: IconDashboard,
-    },
-    {
-      title: "Users",
-      url: "#",
-      icon: IconUsers,
-    },
-    {
-      title: "Analytics",
-      url: "#",
-      icon: IconChartBar,
-    },
-    {
-      title: "Tasks",
-      url: "#",
-      icon: IconListCheck,
-    },
-    {
-      title: "Calendar",
-      url: "#",
-      icon: IconCalendarEvent,
-    },
-  ],
   navClouds: [
     {
       title: "Projects",
@@ -119,40 +139,47 @@ const data = {
   navSecondary: [
     {
       title: "Settings",
-      url: "#",
+      url: "/settings",
       icon: IconSettings,
     },
     {
       title: "Get Help",
-      url: "#",
+      url: "/help",
       icon: IconHelp,
     },
     {
       title: "Search",
-      url: "#",
+      url: "/search",
       icon: IconSearch,
     },
   ],
   documents: [
     {
       name: "Data Library",
-      url: "#",
+      url: "/data-library",
       icon: IconDatabase,
     },
     {
       name: "Reports",
-      url: "#",
+      url: "/reports",
       icon: IconReport,
     },
     {
       name: "Documentation",
-      url: "#",
+      url: "/documentation",
       icon: IconFileWord,
     },
   ],
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { session } = useAuth();
+  const pathname = usePathname();
+  const portalTitle = session.user?.role === 'admin' ? 'Admin Portal' : 'Employee Portal';
+  
+  // Decide which nav items to display based on user role
+  const navItems = session.user?.role === 'admin' ? adminNavItems : employeeNavItems;
+  
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -162,16 +189,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <a href="#">
+              <Link href="/dashboard">
                 <IconInnerShadowTop className="!size-5" />
-                <span className="text-base font-semibold">Admin Portal</span>
-              </a>
+                <span className="text-base font-semibold">{portalTitle}</span>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
+        <NavMain items={navItems} currentPath={pathname} />
         <NavDocuments items={data.documents} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>

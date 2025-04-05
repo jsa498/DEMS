@@ -29,13 +29,13 @@ import {
   IconCircleCheckFilled,
   IconDotsVertical,
   IconGripVertical,
-  IconLayoutColumns,
   IconLoader,
   IconPlus,
-  IconTrendingUp,
   IconUser,
   IconBriefcase,
   IconPointFilled,
+  IconChevronUp,
+  IconSelector,
 } from "@tabler/icons-react"
 import {
   ColumnDef,
@@ -51,6 +51,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type Column,
 } from "@tanstack/react-table"
 import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
 import { toast } from "sonner"
@@ -68,7 +69,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Drawer,
-  DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -78,7 +78,6 @@ import {
 } from "@/components/ui/drawer"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -108,6 +107,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/lib/auth-context"
+
+type User = { id: number; name: string; role: string };
 
 export const schema = z.object({
   id: z.number(),
@@ -115,6 +119,8 @@ export const schema = z.object({
   status: z.string(),
   sale: z.string().optional(),
   engineer: z.string().optional(),
+  sale_id: z.number().optional(),
+  engineer_id: z.number().optional(),
 })
 
 // Create a separate component for the drag handle
@@ -137,7 +143,43 @@ function DragHandle({ id }: { id: number }) {
   )
 }
 
-const columns: ColumnDef<z.infer<typeof schema>>[] = [
+// Add this component before the createColumns function
+function DataTableColumnHeader({
+  column,
+  title,
+}: {
+  column: Column<z.infer<typeof schema>, unknown>
+  title: string
+}) {
+  if (!column.getCanSort()) {
+    return <div className="text-sm font-medium">{title}</div>
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      className="flex items-center gap-1 p-0 hover:bg-transparent text-sm font-medium"
+    >
+      {title}
+      {column.getIsSorted() === "asc" ? (
+        <IconChevronUp className="h-3.5 w-3.5" />
+      ) : column.getIsSorted() === "desc" ? (
+        <IconChevronDown className="h-3.5 w-3.5" />
+      ) : (
+        <IconSelector className="h-3.5 w-3.5 opacity-50" />
+      )}
+    </Button>
+  )
+}
+
+const createColumns = (
+  data: z.infer<typeof schema>[],
+  setData: React.Dispatch<React.SetStateAction<z.infer<typeof schema>[]>>,
+  setDeleteDialogOpen: React.Dispatch<React.SetStateAction<boolean>>,
+  setProjectToDelete: React.Dispatch<React.SetStateAction<number | null>>,
+  isAdmin: boolean,
+): ColumnDef<z.infer<typeof schema>>[] => [
   {
     id: "drag",
     header: () => null,
@@ -171,9 +213,14 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
   },
   {
     accessorKey: "header",
-    header: "Clients",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Client" />
+    ),
     cell: ({ row }) => {
-      return <TableCellViewer item={row.original} />
+      return <TableCellViewer 
+        item={row.original} 
+        onProjectUpdated={() => { /* TODO: Implement refresh logic if needed */ }} 
+      />
     },
     enableHiding: false,
   },
@@ -214,7 +261,7 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
   },
   {
     accessorKey: "sale",
-    header: "Sale",
+    header: "Client Rep",
     cell: ({ row }) => <div>{row.original.sale || "N/A"}</div>,
   },
   {
@@ -224,27 +271,51 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
   },
   {
     id: "actions",
-    cell: () => (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            className="data-[state=open]:bg-muted text-muted-foreground flex size-8"
-            size="icon"
-          >
-            <IconDotsVertical />
-            <span className="sr-only">Open menu</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-32">
-          <DropdownMenuItem>Edit</DropdownMenuItem>
-          <DropdownMenuItem>Make a copy</DropdownMenuItem>
-          <DropdownMenuItem>Favorite</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive">Delete</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ),
+    cell: ({ row }) => {
+      const projectId = row.original.id;
+      
+      const handleDelete = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Set the project to delete and open the confirmation dialog
+        setProjectToDelete(projectId);
+        setDeleteDialogOpen(true);
+      };
+      
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="h-8 w-8 p-0"
+            >
+              <span className="sr-only">Open menu</span>
+              <IconDotsVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+            >
+              View details
+            </DropdownMenuItem>
+            {/* Only show delete option for admin users */}
+            {isAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={handleDelete}
+                >
+                  Delete
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    },
   },
 ]
 
@@ -296,11 +367,69 @@ export function DataTable({
     useSensor(TouchSensor, {}),
     useSensor(KeyboardSensor, {})
   )
+  const { session } = useAuth()
+  
+  // State for client dialog
+  const [addClientDialogOpen, setAddClientDialogOpen] = React.useState(false)
+  const [projectName, setProjectName] = React.useState("")
+  const [selectedStatus, setSelectedStatus] = React.useState("Lead")
+  const [selectedSale, setSelectedSale] = React.useState<number | null>(null)
+  const [selectedEngineer, setSelectedEngineer] = React.useState<number | null>(null)
+  const [salesUsers, setSalesUsers] = React.useState<User[]>([])
+  const [engineerUsers, setEngineerUsers] = React.useState<User[]>([])
+  
+  // State for delete confirmation dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [projectToDelete, setProjectToDelete] = React.useState<number | null>(null)
+  const userRole = session.user?.role || '';
+  const isAdmin = userRole === 'admin';
+  
+  // Load sales and engineer users for the dropdown
+  React.useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        // Fetch sales users
+        const { data: salesData, error: salesError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('role', 'sales');
+        
+        if (salesError) throw salesError;
+        setSalesUsers(salesData || []);
+
+        // Fetch engineer users
+        const { data: engineerData, error: engineerError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('role', 'engineer');
+        
+        if (engineerError) throw engineerError;
+        setEngineerUsers(engineerData || []);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        toast.error('Failed to load users');
+      }
+    };
+
+    if (session.isAuthenticated) {
+      fetchUsers();
+    }
+  }, [session.isAuthenticated]);
+
+  // Update data when initialData changes
+  React.useEffect(() => {
+    setData(initialData);
+  }, [initialData]);
 
   const dataIds = React.useMemo<UniqueIdentifier[]>(
     () => data?.map(({ id }) => id) || [],
     [data]
   )
+
+  // Create the columns with access to data and setData
+  const columns = React.useMemo<ColumnDef<z.infer<typeof schema>>[]>(() => {
+    return createColumns(data, setData, setDeleteDialogOpen, setProjectToDelete, isAdmin);
+  }, [data, isAdmin, setDeleteDialogOpen, setProjectToDelete]);
 
   const table = useReactTable({
     data,
@@ -327,6 +456,104 @@ export function DataTable({
     getFacetedUniqueValues: getFacetedUniqueValues(),
   })
 
+  // Function to add a new client
+  const handleAddClient = async () => {
+    if (!projectName) {
+      toast.error("Please enter a project name");
+      return;
+    }
+
+    if (!selectedStatus) {
+      toast.error("Please select a status");
+      return;
+    }
+
+    // Create client data
+    let saleId = selectedSale;
+    const engineerId = selectedEngineer;
+    
+    // If user is a sales employee, automatically set saleId to current user
+    if (session.user?.role === 'sales') {
+      saleId = session.user.id;
+    }
+
+    try {
+      // Add to Supabase
+      const { data: newProject, error } = await supabase
+        .from('projects')
+        .insert([
+          { 
+            name: projectName, 
+            status: selectedStatus,
+            sale_id: saleId,
+            engineer_id: engineerId
+          }
+        ])
+        .select();
+      
+      if (error) throw error;
+      
+      // Get user names for display
+      let saleName = undefined;
+      let engineerName = undefined;
+      
+      if (saleId) {
+        const { data: saleUser } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', saleId)
+          .single();
+        
+        if (saleUser) {
+          saleName = saleUser.name;
+        }
+      }
+      
+      if (engineerId) {
+        const { data: engineerUser } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', engineerId)
+          .single();
+        
+        if (engineerUser) {
+          engineerName = engineerUser.name;
+        }
+      }
+      
+      // Add to local state with correct format for DataTable
+      setData(prev => [...prev, {
+        id: newProject?.[0]?.id || Math.random(),
+        header: projectName,
+        status: selectedStatus,
+        sale: saleName,
+        engineer: engineerName,
+        sale_id: saleId || undefined,
+        engineer_id: engineerId || undefined
+      }]);
+      
+      // Close dialog and reset form
+      setProjectName('');
+      setSelectedStatus('');
+      setSelectedSale(null);
+      setSelectedEngineer(null);
+      setAddClientDialogOpen(false);
+      
+      toast.success("Client added successfully");
+    } catch (error) {
+      console.error('Error adding client:', error);
+      toast.error("Failed to add client");
+    }
+  };
+
+  // Function to handle tab changes and update filters
+  const handleTabChange = (value: string) => {
+    const statusColumn = table.getColumn("status")
+    if (statusColumn) {
+      statusColumn.setFilterValue(value === "all" ? undefined : value)
+    }
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (active && over && active.id !== over.id) {
@@ -338,83 +565,70 @@ export function DataTable({
     }
   }
 
+  // Function to handle client deletion when confirmed
+  const confirmDelete = async () => {
+    if (projectToDelete === null) return;
+    
+    // Only admins can delete clients
+    if (!isAdmin) {
+      toast.error('You do not have permission to delete clients');
+      setDeleteDialogOpen(false);
+      setProjectToDelete(null);
+      return;
+    }
+    
+    try {
+      // Delete the project from the database
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectToDelete);
+        
+      if (error) throw error;
+      
+      // Remove the project from the local state
+      setData(data.filter(item => item.id !== projectToDelete));
+      toast.success('Client deleted successfully');
+    } catch (error) {
+      console.error('Error deleting client:', error);
+      toast.error('Failed to delete client');
+    } finally {
+      setDeleteDialogOpen(false);
+      setProjectToDelete(null);
+    }
+  };
+
   return (
     <Tabs
-      defaultValue="outline"
+      defaultValue="all"
       className="w-full flex-col justify-start gap-6"
+      onValueChange={handleTabChange}
     >
       <div className="flex items-center justify-between px-4 lg:px-6">
         <Label htmlFor="view-selector" className="sr-only">
           View
         </Label>
-        <Select defaultValue="outline">
-          <SelectTrigger
-            className="flex w-fit @4xl/main:hidden"
-            size="sm"
-            id="view-selector"
-          >
-            <SelectValue placeholder="Select a view" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="outline">Outline</SelectItem>
-            <SelectItem value="past-performance">Past Performance</SelectItem>
-            <SelectItem value="key-personnel">Key Personnel</SelectItem>
-            <SelectItem value="focus-documents">Focus Documents</SelectItem>
-          </SelectContent>
-        </Select>
         <TabsList className="**:data-[slot=badge]:bg-muted-foreground/30 hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:px-1 @4xl/main:flex">
-          <TabsTrigger value="outline">Outline</TabsTrigger>
-          <TabsTrigger value="past-performance">
-            Past Performance <Badge variant="secondary">3</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="key-personnel">
-            Key Personnel <Badge variant="secondary">2</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="focus-documents">Focus Documents</TabsTrigger>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="Lead">Lead</TabsTrigger>
+          <TabsTrigger value="Client">Client</TabsTrigger>
+          <TabsTrigger value="In Development">In Development</TabsTrigger>
+          <TabsTrigger value="Completed">Completed</TabsTrigger>
         </TabsList>
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <IconLayoutColumns />
-                <span className="hidden lg:inline">Customize Columns</span>
-                <span className="lg:hidden">Columns</span>
-                <IconChevronDown />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {table
-                .getAllColumns()
-                .filter(
-                  (column) =>
-                    typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
-                )
-                .map((column) => {
-                  const displayName = column.id === 'header' ? 'Clients' : column.id;
-                  return (
-                    <DropdownMenuCheckboxItem
-                      key={column.id}
-                      className="capitalize"
-                      checked={column.getIsVisible()}
-                      onCheckedChange={(value) =>
-                        column.toggleVisibility(!!value)
-                      }
-                    >
-                      {displayName}
-                    </DropdownMenuCheckboxItem>
-                  )
-                })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="outline" size="sm">
+          {/* Client button */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setAddClientDialogOpen(true)}
+          >
             <IconPlus />
-            <span className="hidden lg:inline">Add Section</span>
+            <span className="hidden lg:inline">Client</span>
           </Button>
         </div>
       </div>
       <TabsContent
-        value="outline"
+        value="all"
         className="relative flex flex-col gap-4 overflow-auto px-4 lg:px-6"
       >
         <div className="overflow-hidden rounded-lg border">
@@ -457,7 +671,7 @@ export function DataTable({
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={columns.length}
+                      colSpan={7}
                       className="h-24 text-center"
                     >
                       No results.
@@ -546,50 +760,438 @@ export function DataTable({
           </div>
         </div>
       </TabsContent>
-      <TabsContent
-        value="past-performance"
-        className="flex flex-col px-4 lg:px-6"
-      >
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
-      <TabsContent value="key-personnel" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
-      <TabsContent
-        value="focus-documents"
-        className="flex flex-col px-4 lg:px-6"
-      >
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
+
+      {["Lead", "Client", "In Development", "Completed"].map((statusValue) => (
+        <TabsContent
+          key={statusValue}
+          value={statusValue}
+          className="relative flex flex-col gap-4 overflow-auto px-4 lg:px-6"
+        >
+          <div className="overflow-hidden rounded-lg border">
+            <DndContext
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleDragEnd}
+              sensors={sensors}
+              id={`${sortableId}-${statusValue}`}
+            >
+              <Table>
+                <TableHeader className="bg-muted sticky top-0 z-10">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        return (
+                          <TableHead key={header.id} colSpan={header.colSpan}>
+                            {header.isPlaceholder
+                              ? null
+                              : flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext()
+                                )}
+                          </TableHead>
+                        )
+                      })}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                  {table.getRowModel().rows?.length ? (
+                    <SortableContext
+                      items={dataIds}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {table.getRowModel().rows.map((row) => (
+                        <DraggableRow key={row.id} row={row} />
+                      ))}
+                    </SortableContext>
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="h-24 text-center"
+                      >
+                        No results.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </DndContext>
+          </div>
+          <div className="flex items-center justify-between px-4">
+            <div className="text-muted-foreground hidden flex-1 text-sm lg:flex">
+              {table.getFilteredSelectedRowModel().rows.length} of{" "}
+              {table.getFilteredRowModel().rows.length} row(s) selected.
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label htmlFor={`rows-per-page-${statusValue}`} className="text-sm font-medium">
+                  Rows per page
+                </Label>
+                <Select
+                  value={`${table.getState().pagination.pageSize}`}
+                  onValueChange={(value) => {
+                    table.setPageSize(Number(value))
+                  }}
+                >
+                  <SelectTrigger size="sm" className="w-20" id={`rows-per-page-${statusValue}`}>
+                    <SelectValue
+                      placeholder={table.getState().pagination.pageSize}
+                    />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>
+                        {pageSize}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {table.getState().pagination.pageIndex + 1} of{" "}
+                {table.getPageCount()}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button
+                  variant="outline"
+                  className="hidden h-8 w-8 p-0 lg:flex"
+                  onClick={() => table.setPageIndex(0)}
+                  disabled={!table.getCanPreviousPage()}
+                >
+                  <span className="sr-only">Go to first page</span>
+                  <IconChevronsLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => table.previousPage()}
+                  disabled={!table.getCanPreviousPage()}
+                >
+                  <span className="sr-only">Go to previous page</span>
+                  <IconChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => table.nextPage()}
+                  disabled={!table.getCanNextPage()}
+                >
+                  <span className="sr-only">Go to next page</span>
+                  <IconChevronRight />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="hidden size-8 lg:flex"
+                  size="icon"
+                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                  disabled={!table.getCanNextPage()}
+                >
+                  <span className="sr-only">Go to last page</span>
+                  <IconChevronsRight />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+      ))}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Client</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this client? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Client Dialog */}
+      <Dialog open={addClientDialogOpen} onOpenChange={setAddClientDialogOpen}>
+        <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden">
+          <div className="flex flex-col">
+            {/* Header Section with dark/neutral background */}
+            <div className="bg-muted p-6 border-b">
+              <DialogTitle className="text-2xl font-semibold">Add New Project</DialogTitle>
+              <DialogDescription className="text-muted-foreground mt-2">
+                Create a new lead or client. {!isAdmin && "Only admins can edit details after creation."}
+              </DialogDescription>
+            </div>
+
+            {/* Form Content */}
+            <div className="p-6">
+              <div className="space-y-6">
+                {/* Client Name */}
+                <div>
+                  <Label htmlFor="name" className="text-base font-medium">
+                    Client Name
+                  </Label>
+                  <Input 
+                    id="name" 
+                    className="mt-2"
+                    placeholder="Enter client name"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                  />
+                </div>
+                
+                {/* Status */}
+                <div>
+                  <Label htmlFor="status" className="text-base font-medium">
+                    Status
+                  </Label>
+                  <Select 
+                    value={selectedStatus} 
+                    onValueChange={setSelectedStatus}
+                  >
+                    <SelectTrigger id="status" className="mt-2 w-full">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Lead">Lead</SelectItem>
+                      <SelectItem value="Client">Client</SelectItem>
+                      <SelectItem value="In Development">In Development</SelectItem>
+                      <SelectItem value="Completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Sales Representative - Only for admin */}
+                  {isAdmin && (
+                    <div>
+                      <Label htmlFor="sale" className="text-base font-medium">
+                        Sales Representative
+                      </Label>
+                      <Select 
+                        value={selectedSale?.toString() || 'none'} 
+                        onValueChange={(value) => setSelectedSale(value === "none" ? null : parseInt(value))}
+                      >
+                        <SelectTrigger id="sale" className="mt-2 w-full">
+                          <SelectValue placeholder="Select representative" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {salesUsers.map(user => (
+                            <SelectItem key={user.id} value={user.id.toString()}>{user.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  
+                  {/* Engineer */}
+                  <div>
+                    <Label htmlFor="engineer" className="text-base font-medium">
+                      Engineer
+                    </Label>
+                    <Select 
+                      value={selectedEngineer?.toString() || 'none'} 
+                      onValueChange={(value) => setSelectedEngineer(value === "none" ? null : parseInt(value))}
+                    >
+                      <SelectTrigger id="engineer" className="mt-2 w-full">
+                        <SelectValue placeholder="Select engineer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {engineerUsers.map(user => (
+                          <SelectItem key={user.id} value={user.id.toString()}>{user.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Footer Actions */}
+            <div className="p-6 flex flex-row justify-end gap-2 border-t bg-muted/20">
+              <Button 
+                variant="outline" 
+                onClick={() => setAddClientDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleAddClient} 
+                disabled={!projectName}
+                className="px-8"
+              >
+                Add Client
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Tabs>
   )
 }
 
 const chartData = [
-  { month: "January", leads: 186, sales: 80 },
-  { month: "February", leads: 305, sales: 200 },
-  { month: "March", leads: 237, sales: 120 },
-  { month: "April", leads: 73, sales: 190 },
-  { month: "May", leads: 209, sales: 130 },
-  { month: "June", leads: 214, sales: 140 },
+  { month: "January", leads: 186, clients: 80 },
+  { month: "February", leads: 305, clients: 200 },
+  { month: "March", leads: 237, clients: 120 },
+  { month: "April", leads: 73, clients: 190 },
+  { month: "May", leads: 209, clients: 130 },
+  { month: "June", leads: 214, clients: 140 },
 ]
 
 const chartConfig = {
   leads: {
     label: "Leads",
-    color: "var(--primary)",
+    theme: { light: "var(--chart-1)", dark: "var(--chart-1)" },
   },
-  sales: {
-    label: "Sales",
-    color: "var(--primary)",
+  clients: {
+    label: "Clients",
+    theme: { light: "var(--color-purple)", dark: "var(--color-purple)" },
   },
 } satisfies ChartConfig
 
-function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
+function TableCellViewer({ 
+  item, 
+  onProjectUpdated 
+}: { 
+  item: z.infer<typeof schema>;
+  onProjectUpdated: () => void 
+}) {
   const isMobile = useIsMobile()
+  const { session } = useAuth()
+  const userRole = session.user?.role || ''
+  const isAdmin = userRole === 'admin'
+  const [projectName, setProjectName] = React.useState(item.header)
+  const [status, setStatus] = React.useState(item.status)
+  const [selectedSaleId, setSelectedSaleId] = React.useState<number | undefined>(item.sale_id)
+  const [selectedEngineerId, setSelectedEngineerId] = React.useState<number | undefined>(item.engineer_id)
+  const [salesUsers, setSalesUsers] = React.useState<User[]>([])
+  const [engineerUsers, setEngineerUsers] = React.useState<User[]>([])
+  const [drawerOpen, setDrawerOpen] = React.useState(false)
+  
+  // Track the original values to detect changes
+  const [originalValues, setOriginalValues] = React.useState({
+    projectName: item.header,
+    status: item.status,
+    selectedSaleId: item.sale_id,
+    selectedEngineerId: item.engineer_id,
+  })
+  
+  // Function to detect if form has changes
+  const hasChanges = React.useMemo(() => {
+    return (
+      projectName !== originalValues.projectName ||
+      status !== originalValues.status ||
+      selectedSaleId !== originalValues.selectedSaleId ||
+      selectedEngineerId !== originalValues.selectedEngineerId
+    )
+  }, [projectName, status, selectedSaleId, selectedEngineerId, originalValues])
+
+  // Load sales and engineer users for the dropdown
+  React.useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        // Fetch sales users
+        const { data: salesData, error: salesError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('role', 'sales');
+        
+        if (salesError) throw salesError;
+        setSalesUsers(salesData || []);
+
+        // Fetch engineer users
+        const { data: engineerData, error: engineerError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('role', 'engineer');
+        
+        if (engineerError) throw engineerError;
+        setEngineerUsers(engineerData || []);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        toast.error('Failed to load users');
+      }
+    };
+
+    if (drawerOpen) {
+      fetchUsers();
+      
+      // Reset form values to original when drawer opens
+      setProjectName(item.header);
+      setStatus(item.status);
+      setSelectedSaleId(item.sale_id);
+      setSelectedEngineerId(item.engineer_id);
+      
+      // Update original values
+      setOriginalValues({
+        projectName: item.header,
+        status: item.status,
+        selectedSaleId: item.sale_id,
+        selectedEngineerId: item.engineer_id,
+      });
+    }
+  }, [drawerOpen, item]);
+
+  // Add a useEffect to reset form when drawer is closed
+  React.useEffect(() => {
+    if (!drawerOpen) {
+      // Reset form values when drawer closes without saving
+      setProjectName(originalValues.projectName);
+      setStatus(originalValues.status);
+      setSelectedSaleId(originalValues.selectedSaleId);
+      setSelectedEngineerId(originalValues.selectedEngineerId);
+    }
+  }, [drawerOpen, originalValues]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    try {
+      // Get the project ID from the item
+      const projectId = item.id
+
+      // Update the project in Supabase
+      const { error } = await supabase
+        .from('projects')
+        .update({ 
+          name: projectName,
+          status,
+          sale_id: selectedSaleId === undefined ? null : selectedSaleId,
+          engineer_id: selectedEngineerId === undefined ? null : selectedEngineerId
+        })
+        .eq('id', projectId)
+
+      if (error) throw error
+
+      // Update original values after successful save
+      setOriginalValues({
+        projectName,
+        status,
+        selectedSaleId,
+        selectedEngineerId
+      })
+
+      toast.success('Project updated successfully')
+      // Trigger refresh of the parent data table
+      onProjectUpdated()
+    } catch (error) {
+      console.error('Error updating project:', error)
+      toast.error('Failed to update project')
+    }
+  }
 
   return (
-    <Drawer direction={isMobile ? "bottom" : "right"}>
+    <Drawer direction={isMobile ? "bottom" : "right"} open={drawerOpen} onOpenChange={setDrawerOpen}>
       <DrawerTrigger asChild>
         <Button variant="link" className="text-foreground w-fit px-0 text-left">
           {item.header}
@@ -597,23 +1199,26 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
       </DrawerTrigger>
       <DrawerContent>
         <DrawerHeader className="gap-1">
-          <DrawerTitle>{item.header}</DrawerTitle>
+          <DrawerTitle>{projectName}</DrawerTitle>
           <DrawerDescription>
-            Showing total visitors for the last 6 months
+            Project details and information
           </DrawerDescription>
         </DrawerHeader>
         <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm">
           {!isMobile && (
             <>
               <ChartContainer config={chartConfig}>
-                <AreaChart
-                  accessibilityLayer
-                  data={chartData}
-                  margin={{
-                    left: 0,
-                    right: 10,
-                  }}
-                >
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="fillClients" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0.1} />
+                    </linearGradient>
+                    <linearGradient id="fillLeads" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={1.0} />
+                      <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.1} />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid vertical={false} />
                   <XAxis
                     dataKey="month"
@@ -628,47 +1233,48 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
                     content={<ChartTooltipContent indicator="dot" />}
                   />
                   <Area
-                    dataKey="sales"
+                    dataKey="clients"
                     type="natural"
-                    fill="var(--color-sales)"
-                    fillOpacity={0.6}
-                    stroke="var(--color-sales)"
-                    stackId="a"
+                    fill="url(#fillClients)"
+                    stroke="var(--color-purple)"
                   />
                   <Area
                     dataKey="leads"
                     type="natural"
-                    fill="var(--color-leads)"
-                    fillOpacity={0.4}
-                    stroke="var(--color-leads)"
-                    stackId="a"
+                    fill="url(#fillLeads)"
+                    stroke="var(--chart-1)"
                   />
                 </AreaChart>
               </ChartContainer>
               <Separator />
               <div className="grid gap-2">
                 <div className="flex gap-2 leading-none font-medium">
-                  Trending up by 5.2% this month{" "}
-                  <IconTrendingUp className="size-4" />
+                  Project Information
                 </div>
                 <div className="text-muted-foreground">
-                  Showing total visitors for the last 6 months. This is just
-                  some random text to test the layout. It spans multiple lines
-                  and should wrap around.
+                  {isAdmin 
+                    ? "As an admin, you can edit all project details including client representatives and engineers."
+                    : "Viewing project details. Only admins can edit this information after creation."}
                 </div>
               </div>
               <Separator />
             </>
           )}
-          <form className="flex flex-col gap-4">
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-3">
-              <Label htmlFor="header">Header</Label>
-              <Input id="header" defaultValue={item.header} />
+              <Label htmlFor="header">Project Details</Label>
+              <Input 
+                id="header" 
+                value={projectName} 
+                onChange={(e) => setProjectName(e.target.value)}
+                required
+                disabled={!isAdmin}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-3">
                 <Label htmlFor="status">Status</Label>
-                <Select defaultValue={item.status}>
+                <Select value={status} onValueChange={setStatus} disabled={!isAdmin}>
                   <SelectTrigger id="status" className="w-full">
                     <SelectValue placeholder="Select a status" />
                   </SelectTrigger>
@@ -683,21 +1289,63 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-3">
-                <Label htmlFor="sale">Sale</Label>
-                <Input id="sale" defaultValue={item.sale || ""} placeholder="N/A" />
+                <Label htmlFor="sale">Client Representative</Label>
+                <Select
+                  value={selectedSaleId?.toString() || "none"}
+                  onValueChange={(value) => setSelectedSaleId(value === "none" ? undefined : parseInt(value))}
+                  disabled={!isAdmin}
+                >
+                  <SelectTrigger id="sale">
+                    <SelectValue placeholder="Select a client representative" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {salesUsers.map((user) => (
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  {isAdmin ? "Choose a client representative for this project" : "Only admins can change the client representative"}
+                </p>
               </div>
               <div className="flex flex-col gap-3">
                 <Label htmlFor="engineer">Engineer</Label>
-                <Input id="engineer" defaultValue={item.engineer || ""} placeholder="N/A" />
+                <Select 
+                  value={selectedEngineerId?.toString() || "none"} 
+                  onValueChange={(value) => setSelectedEngineerId(value === "none" ? undefined : parseInt(value))}
+                  disabled={!isAdmin}
+                >
+                  <SelectTrigger id="engineer">
+                    <SelectValue placeholder="Select an engineer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {engineerUsers.map((user) => (
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {isAdmin ? "Choose an engineer for this project" : "Only admins can change the engineer"}
+                </p>
               </div>
             </div>
           </form>
         </div>
         <DrawerFooter>
-          <Button>Submit</Button>
-          <DrawerClose asChild>
-            <Button variant="outline">Done</Button>
-          </DrawerClose>
+          {hasChanges && isAdmin && (
+            <Button onClick={handleSubmit} disabled={!projectName}>
+              Save
+            </Button>
+          )}
+          {!isAdmin && (
+            <p className="text-sm text-muted-foreground text-center">Only admins can edit project details</p>
+          )}
         </DrawerFooter>
       </DrawerContent>
     </Drawer>

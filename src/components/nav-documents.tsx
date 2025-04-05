@@ -7,6 +7,7 @@ import {
   IconTrash,
   type Icon,
 } from "@tabler/icons-react"
+import Link from "next/link"
 
 import {
   DropdownMenu,
@@ -43,10 +44,10 @@ export function NavDocuments({
         {items.map((item) => (
           <SidebarMenuItem key={item.name}>
             <SidebarMenuButton asChild>
-              <a href={item.url}>
+              <Link href={item.url}>
                 <item.icon />
                 <span>{item.name}</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -63,9 +64,11 @@ export function NavDocuments({
                 side={isMobile ? "bottom" : "right"}
                 align={isMobile ? "end" : "start"}
               >
-                <DropdownMenuItem>
-                  <IconFolder />
-                  <span>Open</span>
+                <DropdownMenuItem asChild>
+                  <Link href={item.url}>
+                    <IconFolder />
+                    <span>Open</span>
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem>
                   <IconShare3 />

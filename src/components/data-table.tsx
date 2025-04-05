@@ -226,6 +226,13 @@ const createColumns = (
     enableHiding: false,
   },
   {
+    accessorKey: "client_number",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Client Number" />
+    ),
+    cell: ({ row }) => <div>{row.original.client_number || "N/A"}</div>,
+  },
+  {
     accessorKey: "status",
     header: "Status",
     cell: ({ row }) => {
@@ -676,7 +683,7 @@ export function DataTable({
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="h-24 text-center"
                     >
                       No results.
@@ -812,7 +819,7 @@ export function DataTable({
                   ) : (
                     <TableRow>
                       <TableCell
-                        colSpan={7}
+                        colSpan={8}
                         className="h-24 text-center"
                       >
                         No results.
@@ -1296,6 +1303,16 @@ function TableCellViewer({
                 onChange={(e) => setProjectName(e.target.value)}
                 required
                 disabled={!isAdmin}
+              />
+            </div>
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="client-number">Client Number</Label>
+              <Input 
+                id="client-number" 
+                value={clientNumber || ''} 
+                onChange={(e) => setClientNumber(e.target.value || null)}
+                disabled={!isAdmin}
+                placeholder="Enter client number (optional)"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">

@@ -17,6 +17,7 @@ interface Project {
   engineer?: string;
   sale_id?: number;
   engineer_id?: number;
+  client_number?: string | null;
 }
 
 export default function Page() {
@@ -69,7 +70,8 @@ export default function Page() {
             sale: project.sale_id ? userMap[project.sale_id]?.name : undefined,
             engineer: project.engineer_id ? userMap[project.engineer_id]?.name : undefined,
             sale_id: project.sale_id,
-            engineer_id: project.engineer_id
+            engineer_id: project.engineer_id,
+            client_number: project.client_number
           }));
           
           setProjects(formattedProjects);

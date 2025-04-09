@@ -503,11 +503,23 @@ export function DataTable({
 
     // Create client data
     let saleId = selectedSale;
-    const engineerId = selectedEngineer;
+    let engineerId = selectedEngineer;
     
     // If user is a sales employee, automatically set saleId to current user
     if (session.user?.role === 'sales') {
       saleId = session.user.id;
+    }
+
+    // Only admin can set an engineer
+    if (userRole !== 'admin') {
+      engineerId = null;
+    }
+
+    // Ensure non-admin users can't set status beyond "Client"
+    let finalStatus = selectedStatus;
+    if (!isAdmin && (finalStatus === 'In Development' || finalStatus === 'Completed')) {
+      finalStatus = 'Client';
+      toast.info('Status set to "Client". Only admins can set advanced statuses.');
     }
 
     try {
@@ -517,7 +529,7 @@ export function DataTable({
         .insert([
           { 
             name: projectName, 
-            status: selectedStatus,
+            status: finalStatus,
             sale_id: saleId,
             engineer_id: engineerId,
             client_number: clientNumber,
@@ -560,7 +572,7 @@ export function DataTable({
       setData(prev => [...prev, {
         id: newProject?.[0]?.id || Math.random(),
         header: projectName,
-        status: selectedStatus,
+        status: finalStatus,
         sale: saleName,
         engineer: engineerName,
         sale_id: saleId || undefined,
@@ -965,7 +977,7 @@ export function DataTable({
             <div className="bg-muted p-6 border-b">
               <DialogTitle className="text-2xl font-semibold">Add New Project</DialogTitle>
               <DialogDescription className="text-muted-foreground mt-2">
-                Create a new lead or client. {!isAdmin && "Only admins can edit details after creation."}
+                Create a new lead or client. {!isAdmin && "You can edit basic details like name, number, email, and status up to \"Client\" stage."}
               </DialogDescription>
             </div>
 
@@ -1030,10 +1042,19 @@ export function DataTable({
                     <SelectContent>
                       <SelectItem value="Lead">Lead</SelectItem>
                       <SelectItem value="Client">Client</SelectItem>
-                      <SelectItem value="In Development">In Development</SelectItem>
-                      <SelectItem value="Completed">Completed</SelectItem>
+                      {isAdmin && (
+                        <>
+                          <SelectItem value="In Development">In Development</SelectItem>
+                          <SelectItem value="Completed">Completed</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
+                  {!isAdmin && (
+                    <p className="text-xs text-muted-foreground">
+                      You can only set status to Lead or Client. Advanced statuses require admin.
+                    </p>
+                  )}
                 </div>
                 
                 {/* Sales Rep and Engineer - Side by side on md+ */}
@@ -1061,26 +1082,28 @@ export function DataTable({
                     </div>
                   )}
                   
-                  {/* Engineer */}
-                  <div>
-                    <Label htmlFor="engineer" className="text-base font-medium">
-                      Engineer
-                    </Label>
-                    <Select 
-                      value={selectedEngineer?.toString() || 'none'} 
-                      onValueChange={(value) => setSelectedEngineer(value === "none" ? null : parseInt(value))}
-                    >
-                      <SelectTrigger id="engineer" className="mt-2 w-full">
-                        <SelectValue placeholder="Select engineer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {engineerUsers.map(user => (
-                          <SelectItem key={user.id} value={user.id.toString()}>{user.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {/* Engineer - Only for admin */}
+                  {isAdmin && (
+                    <div>
+                      <Label htmlFor="engineer" className="text-base font-medium">
+                        Engineer
+                      </Label>
+                      <Select 
+                        value={selectedEngineer?.toString() || 'none'} 
+                        onValueChange={(value) => setSelectedEngineer(value === "none" ? null : parseInt(value))}
+                      >
+                        <SelectTrigger id="engineer" className="mt-2 w-full">
+                          <SelectValue placeholder="Select engineer" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {engineerUsers.map(user => (
+                            <SelectItem key={user.id} value={user.id.toString()}>{user.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1241,14 +1264,40 @@ function TableCellViewer({
       // Get the project ID from the item
       const projectId = item.id
 
+      // Ensure non-admin users cannot change engineer_id (use original value)
+      const engineer_id = isAdmin 
+        ? (selectedEngineerId === undefined ? null : selectedEngineerId)
+        : item.engineer_id;
+        
+      // Ensure non-admin users cannot change sale_id (use original value)
+      const sale_id = isAdmin
+        ? (selectedSaleId === undefined ? null : selectedSaleId)
+        : item.sale_id;
+        
+      // For non-admin users, ensure they can't set status beyond "Client"
+      let finalStatus = status;
+      if (!isAdmin) {
+        // If user is trying to set a status beyond Client, revert to original status
+        if (status === 'In Development' || status === 'Completed') {
+          finalStatus = item.status;
+          toast.error('Only admins can set advanced status. Status not updated.');
+        }
+        
+        // If the project was already in development or completed, don't allow employees to change it
+        if (item.status === 'In Development' || item.status === 'Completed') {
+          finalStatus = item.status;
+          toast.error('This project is already in an advanced stage. Only admins can change its status.');
+        }
+      }
+
       // Update the project in Supabase
       const { error } = await supabase
         .from('projects')
         .update({ 
           name: projectName,
-          status,
-          sale_id: selectedSaleId === undefined ? null : selectedSaleId,
-          engineer_id: selectedEngineerId === undefined ? null : selectedEngineerId,
+          status: finalStatus,
+          sale_id,
+          engineer_id,
           client_number: clientNumber,
           email: email
         })
@@ -1259,12 +1308,15 @@ function TableCellViewer({
       // Update original values after successful save
       setOriginalValues({
         projectName,
-        status,
+        status: finalStatus, // Use the potentially adjusted status
         selectedSaleId,
         selectedEngineerId,
         clientNumber,
         email,
       })
+      
+      // Update local state with adjusted status
+      setStatus(finalStatus);
 
       toast.success('Project updated successfully')
       // Trigger refresh of the parent data table
@@ -1339,7 +1391,7 @@ function TableCellViewer({
                 <div className="text-muted-foreground">
                   {isAdmin 
                     ? "As an admin, you can edit all project details including client representatives and engineers."
-                    : "Viewing project details. Only admins can edit this information after creation."}
+                    : "You can edit basic details like name, number, email, and status up to \"Client\" stage. Contact an admin for advanced statuses."}
                 </div>
               </div>
               <Separator />
@@ -1353,7 +1405,7 @@ function TableCellViewer({
                 value={projectName} 
                 onChange={(e) => setProjectName(e.target.value)}
                 required
-                disabled={!isAdmin}
+                disabled={false}
               />
             </div>
             <div className="flex flex-col gap-3">
@@ -1362,7 +1414,7 @@ function TableCellViewer({
                 id="client-number" 
                 value={clientNumber || ''} 
                 onChange={(e) => setClientNumber(e.target.value || null)}
-                disabled={!isAdmin}
+                disabled={false}
                 placeholder="Enter client number (optional)"
               />
             </div>
@@ -1375,23 +1427,36 @@ function TableCellViewer({
                 placeholder="Enter client email (optional)"
                 value={email || ''}
                 onChange={(e) => setEmail(e.target.value || null)}
-                disabled={!isAdmin}
+                disabled={false}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-3">
                 <Label htmlFor="status">Status</Label>
-                <Select value={status} onValueChange={setStatus} disabled={!isAdmin}>
+                <Select 
+                  value={status} 
+                  onValueChange={setStatus} 
+                  disabled={false}
+                >
                   <SelectTrigger id="status" className="w-full">
                     <SelectValue placeholder="Select a status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Lead">Lead</SelectItem>
                     <SelectItem value="Client">Client</SelectItem>
-                    <SelectItem value="In Development">In Development</SelectItem>
-                    <SelectItem value="Completed">Completed</SelectItem>
+                    {isAdmin && (
+                      <>
+                        <SelectItem value="In Development">In Development</SelectItem>
+                        <SelectItem value="Completed">Completed</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
+                {!isAdmin && (
+                  <p className="text-xs text-muted-foreground">
+                    You can only set status to Lead or Client. Advanced statuses require admin.
+                  </p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -1445,13 +1510,13 @@ function TableCellViewer({
           </form>
         </div>
         <DrawerFooter>
-          {hasChanges && isAdmin && (
+          {hasChanges && (
             <Button onClick={handleSubmit} disabled={!projectName}>
               Save
             </Button>
           )}
-          {!isAdmin && (
-            <p className="text-sm text-muted-foreground text-center">Only admins can edit project details</p>
+          {!hasChanges && (
+            <p className="text-sm text-muted-foreground text-center">Make changes to save this project</p>
           )}
         </DrawerFooter>
       </DrawerContent>

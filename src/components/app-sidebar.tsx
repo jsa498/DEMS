@@ -16,6 +16,7 @@ import {
   IconUsers,
   IconCalendarEvent,
   IconListCheck,
+  IconMail,
 } from "@tabler/icons-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -45,6 +46,11 @@ const adminNavItems = [
     title: "Users",
     url: "/users",
     icon: IconUsers,
+  },
+  {
+    title: "Messages",
+    url: "/messages",
+    icon: IconMail,
   },
   {
     title: "Analytics",
